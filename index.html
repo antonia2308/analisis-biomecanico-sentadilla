@@ -1,0 +1,622 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Análisis Biomecánico Kinemático - Sentadilla 2D</title>
+  
+  <!-- External Libraries for Pose Tracking and Graphing -->
+  <script src="https://cdn.jsdelivr.net/npm/@mediapipe/pose/pose.js" crossorigin="anonymous"></script>
+  <script src="https://cdn.jsdelivr.net/npm/@mediapipe/camera_utils/camera_utils.js" crossorigin="anonymous"></script>
+  <script src="https://cdn.jsdelivr.net/npm/@mediapipe/drawing_utils/drawing_utils.js" crossorigin="anonymous"></script>
+  <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
+  <script src="https://cdn.tailwindcss.com"></script>
+  
+  <!-- Font Configuration -->
+  <link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700&display=swap" rel="stylesheet">
+  
+  <style>
+    body {
+      font-family: 'Inter', sans-serif;
+      background-color: #f8fafc;
+      color: #1e293b;
+    }
+    
+    .phase-badge {
+      transition: all 0.3s ease;
+    }
+    
+    /* Custom scrollbar for better visual polish */
+    ::-webkit-scrollbar {
+      width: 6px;
+      height: 6px;
+    }
+    ::-webkit-scrollbar-track {
+      background: #f1f5f9;
+    }
+    ::-webkit-scrollbar-thumb {
+      background: #cbd5e1;
+      border-radius: 4px;
+    }
+  </style>
+</head>
+<body class="min-h-screen p-4 md:p-8">
+
+  <div class="max-w-7xl mx-auto space-y-6">
+    
+    <!-- Top Application Header -->
+    <header class="bg-white rounded-xl shadow-sm border border-slate-200 p-6 flex flex-col md:flex-row md:items-center justify-between gap-4">
+      <div>
+        <div class="flex items-center gap-2 mb-1">
+          <span class="bg-blue-100 text-blue-800 text-xs font-semibold px-2.5 py-0.5 rounded-full">Plano Sagital 2D</span>
+          <span class="bg-emerald-100 text-emerald-800 text-xs font-semibold px-2.5 py-0.5 rounded-full">Goniometría Poplítea</span>
+        </div>
+        <h1 class="text-2xl font-bold text-slate-900">Análisis Biomecánico de Sentadilla</h1>
+        <p class="text-sm text-slate-500">Evaluación kinesiológica con MediaPipe Pose, fases del movimiento y estimación EMG</p>
+      </div>
+      
+      <!-- Video Upload Controls -->
+      <div class="flex items-center gap-3 bg-slate-50 p-3 rounded-lg border border-slate-200">
+        <label for="uploadVideo" class="cursor-pointer bg-blue-600 hover:bg-blue-700 text-white font-medium text-sm px-4 py-2 rounded-lg transition-colors flex items-center gap-2 shadow-sm">
+          <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M4 16v1a3 3 0 003 3h10a3 3 0 003-3v-1m-4-8l-4-4m0 0L8 8m4-4v12"></path></svg>
+          Cargar Video
+        </label>
+        <input type="file" id="uploadVideo" accept="video/*" class="hidden">
+        <span id="fileName" class="text-xs text-slate-500 max-w-[150px] truncate">Sin archivo seleccionado</span>
+      </div>
+    </header>
+
+    <div class="grid grid-cols-1 lg:grid-cols-12 gap-6">
+      
+      <!-- Left Panel: Video Tracking & Canvas Overlay -->
+      <div class="lg:col-span-5 flex flex-col space-y-4">
+        <div class="bg-white rounded-xl shadow-sm border border-slate-200 p-5 space-y-4">
+          <div class="flex items-center justify-between border-b border-slate-100 pb-3">
+            <h2 class="font-bold text-slate-800 flex items-center gap-2">
+              <svg class="w-5 h-5 text-blue-600" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M15 10l4.553-2.276A1 1 0 0121 8.618v6.764a1 1 0 01-1.447.894L15 14M5 18h8a2 2 0 002-2V8a2 2 0 00-2-2H5a2 2 0 00-2 2v8a2 2 0 002 2z"></path></svg>
+              Seguimiento y Fase Kinemática
+            </h2>
+            <span id="movementPhase" class="phase-badge bg-slate-500 text-white text-xs font-bold px-3 py-1 rounded-full uppercase tracking-wider">
+              En Espera
+            </span>
+          </div>
+
+          <!-- Canvas Container -->
+          <div class="relative bg-slate-900 rounded-lg overflow-hidden flex justify-center items-center shadow-inner min-h-[400px]">
+            <video id="inputVideo" class="hidden" playsinline></video>
+            <canvas id="outputCanvas" width="400" height="533" class="max-w-full h-auto rounded-lg"></canvas>
+            
+            <!-- Default Placeholder Overlay -->
+            <div id="videoPlaceholder" class="absolute inset-0 flex flex-col items-center justify-center p-6 text-center text-slate-400 bg-slate-900/90 space-y-3">
+              <svg class="w-12 h-12 text-slate-600 animate-bounce" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="1.5" d="M7 4v16M17 4v16M3 8h4m10 0h4M3 12h18M3 16h4m10 0h4M4 20h16a1 1 0 001-1V5a1 1 0 00-1-1H4a1 1 0 00-1 1v14a1 1 0 001 1z"></path></svg>
+              <p class="text-sm">Por favor, carga un video en plano sagital para comenzar el análisis cinemático.</p>
+            </div>
+          </div>
+
+          <!-- Video Controls -->
+          <div class="flex items-center justify-between gap-3 pt-2">
+            <button id="btnPlay" class="flex-1 bg-slate-800 hover:bg-slate-900 text-white font-medium py-2 px-4 rounded-lg transition-colors flex items-center justify-center gap-2 text-sm shadow-sm">
+              <span>▶</span> Reproducir / Pausar
+            </button>
+            <button id="btnRestart" class="bg-slate-100 hover:bg-slate-200 text-slate-700 font-medium py-2 px-4 rounded-lg transition-colors flex items-center justify-center gap-2 text-sm">
+              <span>🔄</span> Reiniciar
+            </button>
+          </div>
+
+          <!-- Metrics Panel -->
+          <div class="bg-slate-50 rounded-lg p-4 border border-slate-200 space-y-3">
+            <div class="grid grid-cols-2 gap-3 text-center">
+              <div class="bg-white p-3 rounded-md border border-slate-200 shadow-2xs">
+                <span class="text-xs text-slate-500 font-medium block">Flexión Interior Actual</span>
+                <span class="text-xl font-bold text-blue-600"><b id="currentAngle">0.0</b>°</span>
+              </div>
+              <div class="bg-white p-3 rounded-md border border-slate-200 shadow-2xs">
+                <span class="text-xs text-slate-500 font-medium block">Máxima Profundidad</span>
+                <span class="text-xl font-bold text-red-600"><b id="maxFlexion">0.0</b>°</span>
+              </div>
+            </div>
+
+            <div class="bg-emerald-50 border-l-4 border-emerald-500 p-3 rounded-r-md">
+              <span class="text-xs text-emerald-800 font-bold block uppercase tracking-wider">Predominio Muscular Estimado:</span>
+              <span id="emgFocus" class="text-xs text-emerald-900 font-medium leading-relaxed block mt-0.5">
+                Posición Inicial (Erguida)
+              </span>
+            </div>
+          </div>
+        </div>
+      </div>
+
+      <!-- Right Panel: Kinematic Graphs & Biomechanical Table -->
+      <div class="lg:col-span-7 flex flex-col space-y-6">
+        
+        <!-- Graphs Container -->
+        <div class="bg-white rounded-xl shadow-sm border border-slate-200 p-5 space-y-6">
+          
+          <!-- Angle Graph -->
+          <div>
+            <div class="flex items-center justify-between mb-3">
+              <h3 class="font-bold text-slate-800 text-sm flex items-center gap-2">
+                <span class="w-2.5 h-2.5 rounded-full bg-red-500"></span>
+                Grado de Flexión Poplítea vs. Tiempo
+              </h3>
+              <span class="text-xs text-slate-400 font-mono">0° (Extensión) &rarr; 140° (Profunda)</span>
+            </div>
+            <div class="h-48 relative">
+              <canvas id="chartAngle"></canvas>
+            </div>
+          </div>
+
+          <!-- EMG Graph -->
+          <div class="border-t border-slate-100 pt-5">
+            <div class="flex items-center justify-between mb-3">
+              <h3 class="font-bold text-slate-800 text-sm flex items-center gap-2">
+                <span class="w-2.5 h-2.5 rounded-full bg-blue-500"></span>
+                Perfil de Activación Muscular (EMG Estimado %)
+              </h3>
+              <div class="flex gap-3 text-xs">
+                <span class="text-blue-600 font-medium">● Cuádriceps</span>
+                <span class="text-amber-500 font-medium">● Isquiotibiales</span>
+                <span class="text-purple-600 font-medium">● Glúteos</span>
+              </div>
+            </div>
+            <div class="h-44 relative">
+              <canvas id="chartEMG"></canvas>
+            </div>
+          </div>
+
+        </div>
+
+        <!-- Summary Table Card -->
+        <div class="bg-white rounded-xl shadow-sm border border-slate-200 p-5 space-y-4">
+          <div class="flex items-center justify-between border-b border-slate-100 pb-3">
+            <h2 class="font-bold text-slate-800 flex items-center gap-2 text-base">
+              <span>📊</span> Resumen Biomecánico por Fases del Movimiento
+            </h2>
+            <span class="text-xs text-slate-400 font-mono">Kinesiología 2D</span>
+          </div>
+
+          <div class="overflow-x-auto rounded-lg border border-slate-200">
+            <table class="w-full text-left border-collapse">
+              <thead>
+                <tr class="bg-slate-800 text-slate-100 text-xs font-semibold uppercase tracking-wider">
+                  <th class="p-3 border-b border-slate-700">Fase del Movimiento</th>
+                  <th class="p-3 border-b border-slate-700 text-center">Intervalo de Tiempo</th>
+                  <th class="p-3 border-b border-slate-700 text-center">Rango de Flexión</th>
+                  <th class="p-3 border-b border-slate-700">Predominio Muscular (EMG Estimado)</th>
+                </tr>
+              </thead>
+              <tbody class="divide-y divide-slate-200 text-xs">
+                
+                <!-- 1. Fase Excéntrica -->
+                <tr class="hover:bg-slate-50 transition-colors">
+                  <td class="p-3 font-medium">
+                    <div class="flex items-center gap-2">
+                      <span class="w-2 h-2 rounded-full bg-red-500"></span>
+                      <span class="inline-flex items-center px-2 py-0.5 rounded text-[11px] font-semibold bg-red-100 text-red-800">
+                        Fase Excéntrica (Bajada)
+                      </span>
+                    </div>
+                  </td>
+                  <td class="p-3 text-center font-mono text-slate-700"><span id="tbEccentricTime">--</span></td>
+                  <td class="p-3 text-center font-mono font-semibold text-slate-800"><span id="tbEccentricRange">--</span></td>
+                  <td class="p-3 text-slate-600">
+                    Isquiotibiales (rango inicial) y control frenador de Cuádriceps
+                  </td>
+                </tr>
+
+                <!-- 2. Punto Clave: Máxima Profundidad -->
+                <tr class="bg-amber-50/80 hover:bg-amber-100/60 transition-colors border-y-2 border-amber-300">
+                  <td class="p-3 font-bold text-amber-900">
+                    <div class="flex items-center gap-2">
+                      <span class="text-sm">⭐</span>
+                      <span class="inline-flex items-center px-2.5 py-0.5 rounded-md text-[11px] font-bold bg-amber-200 text-amber-900 shadow-2xs border border-amber-300">
+                        Punto de Máxima Profundidad
+                      </span>
+                    </div>
+                  </td>
+                  <td class="p-3 text-center font-mono font-bold text-amber-950 bg-amber-100/40 rounded">
+                    <span id="tbMaxTime">--</span>
+                  </td>
+                  <td class="p-3 text-center font-mono font-extrabold text-red-600 text-sm bg-amber-100/40 rounded">
+                    <span id="tbMaxRange">--</span>
+                  </td>
+                  <td class="p-3 font-medium text-amber-950">
+                    Máximo reclutamiento de <span class="font-bold text-blue-700">Cuádriceps (95%)</span> y <span class="font-bold text-purple-700">Glúteo Mayor (95%)</span>
+                  </td>
+                </tr>
+
+                <!-- 3. Fase Concéntrica -->
+                <tr class="hover:bg-slate-50 transition-colors">
+                  <td class="p-3 font-medium">
+                    <div class="flex items-center gap-2">
+                      <span class="w-2 h-2 rounded-full bg-emerald-500"></span>
+                      <span class="inline-flex items-center px-2 py-0.5 rounded text-[11px] font-semibold bg-emerald-100 text-emerald-800">
+                        Fase Concéntrica (Subida)
+                      </span>
+                    </div>
+                  </td>
+                  <td class="p-3 text-center font-mono text-slate-700"><span id="tbConcentricTime">--</span></td>
+                  <td class="p-3 text-center font-mono font-semibold text-slate-800"><span id="tbConcentricRange">--</span></td>
+                  <td class="p-3 text-slate-600">
+                    Empuje de Cuádriceps y Glúteos al vencer la carga gravitacional
+                  </td>
+                </tr>
+
+                <!-- 4. Resumen Total -->
+                <tr class="bg-slate-50 text-[11px] text-slate-500">
+                  <td class="p-2.5 font-semibold uppercase tracking-wider text-slate-600">Recorrido Completo</td>
+                  <td class="p-2.5 text-center font-mono font-medium">Total: <span id="tbTotalTime">--</span></td>
+                  <td class="p-2.5 text-center font-mono font-medium">ROM: <span id="tbROM">--</span></td>
+                  <td class="p-2.5 italic">Procesado automáticamente vía MediaPipe Pose</td>
+                </tr>
+
+              </tbody>
+            </table>
+          </div>
+        </div>
+
+      </div>
+    </div>
+
+  </div>
+
+  <script>
+    // HTML Element References
+    const videoElement = document.getElementById('inputVideo');
+    const canvasElement = document.getElementById('outputCanvas');
+    const canvasCtx = canvasElement.getContext('2d');
+    const uploadInput = document.getElementById('uploadVideo');
+    const fileNameDisplay = document.getElementById('fileName');
+    const videoPlaceholder = document.getElementById('videoPlaceholder');
+    
+    const btnPlay = document.getElementById('btnPlay');
+    const btnRestart = document.getElementById('btnRestart');
+    
+    const currentAngleElem = document.getElementById('currentAngle');
+    const maxFlexionElem = document.getElementById('maxFlexion');
+    const emgFocusElem = document.getElementById('emgFocus');
+    const movementPhaseElem = document.getElementById('movementPhase');
+
+    // Table Element References
+    const tbEccentricTime = document.getElementById('tbEccentricTime');
+    const tbEccentricRange = document.getElementById('tbEccentricRange');
+    const tbMaxTime = document.getElementById('tbMaxTime');
+    const tbMaxRange = document.getElementById('tbMaxRange');
+    const tbConcentricTime = document.getElementById('tbConcentricTime');
+    const tbConcentricRange = document.getElementById('tbConcentricRange');
+    const tbTotalTime = document.getElementById('tbTotalTime');
+    const tbROM = document.getElementById('tbROM');
+
+    // Data State Variables
+    let maxFlexionRecorded = 0;
+    let maxFlexionTime = "0.00 s";
+    let initialAngle = null;
+    let lastAngle = 0;
+    let startTime = 0;
+
+    let timeData = [];
+    let angleData = [];
+    let quadData = [];
+    let hamData = [];
+    let gluteData = [];
+
+    // 1. Chart: Angle vs Time
+    const ctxChartAngle = document.getElementById('chartAngle').getContext('2d');
+    const angleChart = new Chart(ctxChartAngle, {
+      type: 'line',
+      data: {
+        labels: timeData,
+        datasets: [{
+          label: 'Flexión Interior Rodilla (°)',
+          data: angleData,
+          borderColor: '#ef4444',
+          backgroundColor: 'rgba(239, 68, 68, 0.1)',
+          borderWidth: 2,
+          fill: true,
+          tension: 0.2,
+          pointRadius: 1,
+          pointHoverRadius: 4
+        }]
+      },
+      options: {
+        responsive: true,
+        maintainAspectRatio: false,
+        scales: {
+          x: { title: { display: true, text: 'Tiempo (s)', font: { size: 10 } } },
+          y: { title: { display: true, text: 'Flexión (°)', font: { size: 10 } }, min: 0, max: 150 }
+        },
+        plugins: { legend: { display: false } }
+      }
+    });
+
+    // 2. Chart: EMG Activation Levels vs Time
+    const ctxChartEMG = document.getElementById('chartEMG').getContext('2d');
+    const emgChart = new Chart(ctxChartEMG, {
+      type: 'line',
+      data: {
+        labels: timeData,
+        datasets: [
+          { label: 'Cuádriceps', data: quadData, borderColor: '#3b82f6', borderWidth: 2, tension: 0.2, pointRadius: 0 },
+          { label: 'Isquiotibiales', data: hamData, borderColor: '#f59e0b', borderWidth: 2, tension: 0.2, pointRadius: 0 },
+          { label: 'Glúteos', data: gluteData, borderColor: '#a855f7', borderWidth: 2, tension: 0.2, pointRadius: 0 }
+        ]
+      },
+      options: {
+        responsive: true,
+        maintainAspectRatio: false,
+        scales: {
+          x: { title: { display: true, text: 'Tiempo (s)', font: { size: 10 } } },
+          y: { title: { display: true, text: 'Activación (%)', font: { size: 10 } }, min: 0, max: 100 }
+        },
+        plugins: { legend: { display: false } }
+      }
+    });
+
+    // Calculate interior flexion angle (popliteal space)
+    function calculateInteriorFlexion(p1, p2, p3) {
+      const radians = Math.atan2(p3.y - p2.y, p3.x - p2.x) - Math.atan2(p1.y - p2.y, p1.x - p2.x);
+      let angle = Math.abs((radians * 180.0) / Math.PI);
+      if (angle > 180.0) angle = 360 - angle;
+      return 180 - angle; // Converts to 0° = full extension, 135°+ = deep squat
+    }
+
+    // Detect Movement Phase based on angle differential
+    function detectPhase(currentAngle, lastAngle) {
+      const diff = currentAngle - lastAngle;
+      if (Math.abs(diff) < 0.4) {
+        return { name: 'Transición / Punto Abajo', color: '#f59e0b' };
+      } else if (diff > 0.4) {
+        return { name: 'Fase Excéntrica (Bajada)', color: '#ef4444' };
+      } else {
+        return { name: 'Fase Concéntrica (Subida)', color: '#10b981' };
+      }
+    }
+
+    // Model estimated muscle activation based on joint angle and phase
+    function getEMGLevels(deg, phaseName) {
+      let quad = 20, ham = 20, glute = 15;
+      let focusText = "";
+
+      if (deg < 25) {
+        quad = 20; ham = 30; glute = 15;
+        focusText = "Estabilización postural inicial en bipedestación";
+      } else if (deg >= 25 && deg < 60) {
+        quad = 50; ham = 75; glute = 45;
+        focusText = "Predominio de Isquiotibiales (Co-contracción)";
+      } else if (deg >= 60 && deg < 95) {
+        quad = phaseName.includes('Concéntrica') ? 95 : 85;
+        ham = 55; 
+        glute = 80;
+        focusText = "Alta demanda y empuje de Cuádriceps y Glúteos";
+      } else {
+        quad = 95; ham = 50; 
+        glute = phaseName.includes('Concéntrica') ? 100 : 90;
+        focusText = "Máximo reclutamiento de Glúteo Mayor y Cuádriceps";
+      }
+
+      return { quad, ham, glute, focusText };
+    }
+
+    const pose = new Pose({
+      locateFile: (file) => `https://cdn.jsdelivr.net/npm/@mediapipe/pose/${file}`
+    });
+
+    pose.setOptions({
+      modelComplexity: 1,
+      smoothLandmarks: true,
+      minDetectionConfidence: 0.5,
+      minTrackingConfidence: 0.5
+    });
+
+    pose.onResults((results) => {
+      canvasCtx.save();
+      canvasCtx.clearRect(0, 0, canvasElement.width, canvasElement.height);
+      
+      // Match canvas dimensions to video aspect ratio
+      if (videoElement.videoWidth && canvasElement.width !== videoElement.videoWidth) {
+        canvasElement.width = videoElement.videoWidth;
+        canvasElement.height = videoElement.videoHeight;
+      }
+
+      canvasCtx.drawImage(results.image, 0, 0, canvasElement.width, canvasElement.height);
+
+      if (results.poseLandmarks) {
+        // Right Leg Landmarks (24: Hip, 26: Knee, 28: Ankle)
+        const hip = results.poseLandmarks[24];  
+        const knee = results.poseLandmarks[26]; 
+        const ankle = results.poseLandmarks[28];
+
+        if (hip && knee && ankle) {
+          const flexion = calculateInteriorFlexion(hip, knee, ankle);
+          const currentTimeNum = videoElement.currentTime;
+          const currentTime = currentTimeNum.toFixed(2);
+
+          // Track initial angle
+          if (initialAngle === null && currentTimeNum > 0.1) {
+            initialAngle = flexion;
+          }
+
+          // Detect Movement Phase
+          const phase = detectPhase(flexion, lastAngle);
+          movementPhaseElem.innerText = phase.name;
+          movementPhaseElem.style.backgroundColor = phase.color;
+
+          currentAngleElem.innerText = flexion.toFixed(1);
+
+          // Track Max Flexion
+          if (flexion > maxFlexionRecorded) {
+            maxFlexionRecorded = flexion;
+            maxFlexionTime = `${currentTime} s`;
+            maxFlexionElem.innerText = maxFlexionRecorded.toFixed(1);
+          }
+
+          // Update Summary Table Values Dynamically
+          updateSummaryTable(currentTimeNum, flexion);
+
+          const emg = getEMGLevels(flexion, phase.name);
+          emgFocusElem.innerText = emg.focusText;
+
+          // Convert normalized coordinates to canvas pixels
+          const kx = knee.x * canvasElement.width;
+          const ky = knee.y * canvasElement.height;
+          const hx = hip.x * canvasElement.width;
+          const hy = hip.y * canvasElement.height;
+          const ax = ankle.x * canvasElement.width;
+          const ay = ankle.y * canvasElement.height;
+
+          // 1. Draw Kinematic Segment Lines
+          canvasCtx.strokeStyle = '#22c55e';
+          canvasCtx.lineWidth = 4;
+          canvasCtx.beginPath();
+          canvasCtx.moveTo(hx, hy);
+          canvasCtx.lineTo(kx, ky);
+          canvasCtx.lineTo(ax, ay);
+          canvasCtx.stroke();
+
+          // 2. Draw Popliteal Interior Angle Arc
+          const angleHip = Math.atan2(hy - ky, hx - kx);
+          const angleAnkle = Math.atan2(ay - ky, ax - kx);
+          
+          canvasCtx.fillStyle = 'rgba(234, 179, 8, 0.45)';
+          canvasCtx.strokeStyle = '#eab308';
+          canvasCtx.lineWidth = 2.5;
+          canvasCtx.beginPath();
+          canvasCtx.moveTo(kx, ky);
+          canvasCtx.arc(kx, ky, 40, angleHip, angleAnkle, true);
+          canvasCtx.closePath();
+          canvasCtx.fill();
+          canvasCtx.stroke();
+
+          // 3. Draw Joint Markers (Red Circles)
+          [ [hx, hy], [kx, ky], [ax, ay] ].forEach(p => {
+            canvasCtx.fillStyle = '#ef4444';
+            canvasCtx.beginPath();
+            canvasCtx.arc(p[0], p[1], 7, 0, 2 * Math.PI);
+            canvasCtx.fill();
+            canvasCtx.strokeStyle = '#ffffff';
+            canvasCtx.lineWidth = 2;
+            canvasCtx.stroke();
+          });
+
+          // 4. Render Angle Text on Canvas
+          canvasCtx.fillStyle = '#fef08a';
+          canvasCtx.font = 'bold 20px Inter, Arial';
+          canvasCtx.shadowColor = 'rgba(0,0,0,0.8)';
+          canvasCtx.shadowBlur = 4;
+          canvasCtx.fillText(`${flexion.toFixed(1)}°`, kx - 70, ky + 10);
+          canvasCtx.shadowBlur = 0;
+
+          lastAngle = flexion;
+
+          // Record Data for Charts
+          if (!timeData.includes(currentTime) && !videoElement.paused) {
+            timeData.push(currentTime);
+            angleData.push(flexion.toFixed(1));
+            quadData.push(emg.quad);
+            hamData.push(emg.ham);
+            gluteData.push(emg.glute);
+
+            angleChart.update('none');
+            emgChart.update('none');
+          }
+        }
+      }
+      canvasCtx.restore();
+    });
+
+    function updateSummaryTable(currentTimeNum, currentFlexion) {
+      const initDeg = initialAngle !== null ? initialAngle.toFixed(1) : "0.0";
+      const maxDeg = maxFlexionRecorded.toFixed(1);
+      const currDeg = currentFlexion.toFixed(1);
+      
+      // 1. Eccentric Phase (0 -> Max Flexion Time)
+      tbEccentricTime.innerText = `0.00 s → ${maxFlexionTime}`;
+      tbEccentricRange.innerText = `${initDeg}° → ${maxDeg}°`;
+
+      // 2. Max Depth Point
+      tbMaxTime.innerText = `${maxFlexionTime} (Instante)`;
+      tbMaxRange.innerText = `${maxDeg}° (Pico)`;
+
+      // 3. Concentric Phase (Max Flexion Time -> Total Time)
+      tbConcentricTime.innerText = `${maxFlexionTime} → ${currentTimeNum.toFixed(2)} s`;
+      tbConcentricRange.innerText = `${maxDeg}° → ${currDeg}°`;
+
+      // 4. Total Summary
+      tbTotalTime.innerText = `${currentTimeNum.toFixed(2)} s`;
+      const rom = Math.max(0, maxFlexionRecorded - (initialAngle || 0));
+      tbROM.innerText = `${rom.toFixed(1)}°`;
+    }
+
+    uploadInput.addEventListener('change', (e) => {
+      const file = e.target.files[0];
+      if (file) {
+        fileNameDisplay.innerText = file.name;
+        videoPlaceholder.classList.add('hidden');
+        resetData();
+        
+        const url = URL.createObjectURL(file);
+        videoElement.src = url;
+        videoElement.play();
+      }
+    });
+
+    btnPlay.addEventListener('click', () => {
+      if (videoElement.src) {
+        if (videoElement.paused) {
+          videoElement.play();
+        } else {
+          videoElement.pause();
+        }
+      }
+    });
+
+    function resetData() {
+      maxFlexionRecorded = 0;
+      maxFlexionTime = "0.00 s";
+      initialAngle = null;
+      lastAngle = 0;
+      timeData.length = 0;
+      angleData.length = 0;
+      quadData.length = 0;
+      hamData.length = 0;
+      gluteData.length = 0;
+      
+      maxFlexionElem.innerText = '0.0';
+      currentAngleElem.innerText = '0.0';
+      
+      tbEccentricTime.innerText = '--';
+      tbEccentricRange.innerText = '--';
+      tbMaxTime.innerText = '--';
+      tbMaxRange.innerText = '--';
+      tbConcentricTime.innerText = '--';
+      tbConcentricRange.innerText = '--';
+      tbTotalTime.innerText = '--';
+      tbROM.innerText = '--';
+
+      movementPhaseElem.innerText = 'En Espera';
+      movementPhaseElem.style.backgroundColor = '#64748b';
+      
+      angleChart.update();
+      emgChart.update();
+    }
+
+    btnRestart.addEventListener('click', () => {
+      if (videoElement.src) {
+        videoElement.currentTime = 0;
+        resetData();
+        videoElement.play();
+      }
+    });
+
+    videoElement.addEventListener('play', () => {
+      async function step() {
+        if (!videoElement.paused && !videoElement.ended) {
+          await pose.send({ image: videoElement });
+          requestAnimationFrame(step);
+        }
+      }
+      step();
+    });
+  </script>
+</body>
+</html>
