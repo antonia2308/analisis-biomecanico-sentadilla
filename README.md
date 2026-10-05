@@ -46,5 +46,5 @@ Acceder directamente al enlace público desplegado en Netlify:
 ```text
 ├── index.html                    # Código fuente principal (HTML5, CSS3 y JavaScript integrado)
 ├── README.md                     # Documentación y guía de ejecución del proyecto
-├── Informe_Bioinstrumental.pdf   # Documento escrito de evaluación (máx. 3 páginas)
+├── Informe_Bioinstrumental.pdf   # Documento escrito de evaluación 
 └── Video_Presentacion_3min.mp4   # Demostración del funcionamiento y resultados cinemáticos
